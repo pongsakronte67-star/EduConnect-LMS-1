@@ -1,0 +1,2 @@
+- [Next.js requests on this platform](nextjs-not-supported.md) — no Next.js artifact type exists; offer React + Vite instead and adapt folder conventions.
+- [Firebase-backed React+Vite app patterns](firebase-client-app-patterns.md) — role/auth modeling, Firestore equality-query index rules, and a Node-script trick to test Firebase E2E without a browser.
