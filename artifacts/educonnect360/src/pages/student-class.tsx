@@ -9,6 +9,7 @@ import {
   recordAttendance,
 } from "@/lib/firestore";
 import { coverGradient } from "@/lib/covers";
+import { StudentAssignmentsPanel } from "@/components/student-assignments-panel";
 import type { Class, ClassSession } from "@/types";
 
 export default function StudentClass() {
@@ -135,7 +136,7 @@ export default function StudentClass() {
           {cls.gradeLevel} &middot; ครู{cls.teacherName}
         </p>
 
-        <div className="glass-panel rounded-3xl p-10 w-full flex flex-col items-center animate-fade-in-up" style={{ animationDelay: "200ms", animationFillMode: "both" }}>
+        <div className="glass-panel rounded-3xl p-10 w-full flex flex-col items-center animate-fade-in-up mb-8" style={{ animationDelay: "200ms", animationFillMode: "both" }}>
           {checkedIn ? (
             <>
               <div className="w-24 h-24 rounded-full bg-emerald-500/15 flex items-center justify-center text-emerald-600 text-4xl mb-6">
@@ -173,6 +174,19 @@ export default function StudentClass() {
                 )}
               </button>
             </>
+          )}
+        </div>
+
+        <div className="w-full text-left">
+          <h3 className="text-lg font-bold text-foreground mb-4 flex items-center gap-2">
+            <i className="fa-solid fa-file-pen text-primary" /> การบ้านของฉัน
+          </h3>
+          {profile && (
+            <StudentAssignmentsPanel
+              classId={cls.id}
+              studentId={profile.id}
+              studentName={profile.displayName}
+            />
           )}
         </div>
       </main>

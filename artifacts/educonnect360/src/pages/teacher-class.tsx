@@ -10,7 +10,11 @@ import {
   subscribeSessionAttendance,
 } from "@/lib/firestore";
 import { coverGradient } from "@/lib/covers";
+import { RiskTable } from "@/components/risk-table";
+import { TeacherAssignmentsPanel } from "@/components/assignments-panel";
 import type { Attendance, Class, ClassSession } from "@/types";
+
+type TabId = "overview" | "assignments";
 
 export default function TeacherClass() {
   const { classId } = useParams<{ classId: string }>();
@@ -22,6 +26,7 @@ export default function TeacherClass() {
   const [rate, setRate] = useState<{ rate: number; totalSessions: number; totalCheckins: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
+  const [tab, setTab] = useState<TabId>("overview");
 
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
@@ -115,11 +120,36 @@ export default function TeacherClass() {
       </nav>
 
       <main className="relative z-10 max-w-6xl mx-auto px-6 md:px-10 py-10">
-        <div className="mb-8 animate-fade-in-up">
+        <div className="mb-6 animate-fade-in-up">
           <h1 className="text-3xl font-extrabold text-foreground">{cls.name}</h1>
           <p className="text-muted-foreground mt-1">{cls.gradeLevel}</p>
         </div>
 
+        <div className="flex items-center gap-1 mb-8 glass-panel rounded-xl p-1.5 w-fit">
+          {(
+            [
+              { id: "overview" as const, label: "ภาพรวม", icon: "fa-chart-line" },
+              { id: "assignments" as const, label: "การบ้าน", icon: "fa-file-pen" },
+            ]
+          ).map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all ${
+                tab === t.id ? "bg-primary text-primary-foreground shadow-md shadow-primary/20" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <i className={`fa-solid ${t.icon}`} /> {t.label}
+            </button>
+          ))}
+        </div>
+
+        {tab === "assignments" && profile && (
+          <TeacherAssignmentsPanel cls={cls} teacherId={profile.id} />
+        )}
+
+        {tab === "overview" && (
+        <>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
           <StatCard icon="fa-users" label="นักเรียนทั้งหมด" value={String(rosterSize)} accent="text-primary" delay={0} />
           <StatCard icon="fa-user-check" label="เช็คชื่อวันนี้" value={`${checkedInToday} / ${rosterSize}`} accent="text-emerald-600" delay={80} />
@@ -201,6 +231,12 @@ export default function TeacherClass() {
             )}
           </div>
         </div>
+
+        <div className="mt-6">
+          <RiskTable cls={cls} />
+        </div>
+        </>
+        )}
       </main>
     </div>
   );

@@ -7,6 +7,8 @@ import Login from '@/pages/login';
 import Register from '@/pages/register';
 import TeacherHome from '@/pages/teacher-home';
 import TeacherClass from '@/pages/teacher-class';
+import TeacherGradebook from '@/pages/teacher-gradebook';
+import TeacherAiAssistant from '@/pages/teacher-ai-assistant';
 import StudentHome from '@/pages/student-home';
 import StudentClass from '@/pages/student-class';
 import ParentPortal from '@/pages/parent-portal';
@@ -30,6 +32,16 @@ function Router() {
       <Route path="/teacher/classes/:classId">
         <ProtectedRoute role="teacher">
           <TeacherClass />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/teacher/classes/:classId/assignments/:assignmentId">
+        <ProtectedRoute role="teacher">
+          <TeacherGradebook />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/teacher/ai-assistant">
+        <ProtectedRoute role="teacher">
+          <TeacherAiAssistant />
         </ProtectedRoute>
       </Route>
       <Route path="/student">

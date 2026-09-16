@@ -21,10 +21,13 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import type {
+  Assignment,
   Attendance,
   Class,
   ClassCover,
   ClassSession,
+  StudentRiskEntry,
+  Submission,
   User,
   UserRole,
 } from "@/types";
@@ -95,6 +98,30 @@ export async function getUserProfile(uid: string): Promise<User | null> {
     createdAt: tsToISO(data.createdAt),
     updatedAt: tsToISO(data.updatedAt),
   };
+}
+
+/** Bulk-fetches user profiles by id (Firestore doc reads, one per id -- fine for class roster sizes). */
+export async function getUsersByIds(ids: string[]): Promise<User[]> {
+  if (ids.length === 0) return [];
+  const database = requireDb();
+  const results = await Promise.all(
+    ids.map(async (id) => {
+      const snap = await getDoc(doc(database, "users", id));
+      if (!snap.exists()) return null;
+      const data = snap.data();
+      return {
+        id: snap.id,
+        uid: data.uid,
+        email: data.email,
+        displayName: data.displayName,
+        role: data.role,
+        photoURL: data.photoURL ?? null,
+        createdAt: tsToISO(data.createdAt),
+        updatedAt: tsToISO(data.updatedAt),
+      } as User;
+    }),
+  );
+  return results.filter((u): u is User => u !== null);
 }
 
 /* ------------------------------------------------------------------ */
@@ -358,4 +385,250 @@ export async function getClassAttendanceRate(
   const possible = totalSessions * rosterSize;
   const rate = possible > 0 ? Math.round((totalCheckins / possible) * 100) : 0;
   return { rate, totalSessions, totalCheckins };
+}
+
+/* ------------------------------------------------------------------ */
+/* Assignments & submissions                                           */
+/* ------------------------------------------------------------------ */
+
+function mapAssignmentDoc(id: string, data: Record<string, unknown>): Assignment {
+  return {
+    id,
+    classId: data.classId as string,
+    teacherId: data.teacherId as string,
+    title: data.title as string,
+    description: data.description as string,
+    dueDate: data.dueDate as string,
+    maxScore: data.maxScore as number,
+    createdAt: tsToISO(data.createdAt),
+  };
+}
+
+function mapSubmissionDoc(id: string, data: Record<string, unknown>): Submission {
+  return {
+    id,
+    assignmentId: data.assignmentId as string,
+    classId: data.classId as string,
+    studentId: data.studentId as string,
+    studentName: data.studentName as string,
+    content: (data.content as string | null) ?? null,
+    fileName: (data.fileName as string | null) ?? null,
+    status: data.status as Submission["status"],
+    score: (data.score as number | null) ?? null,
+    submittedAt: tsToISO(data.submittedAt),
+    gradedAt: data.gradedAt ? tsToISO(data.gradedAt) : null,
+  };
+}
+
+export async function createAssignment(input: {
+  classId: string;
+  teacherId: string;
+  title: string;
+  description: string;
+  dueDate: string;
+  maxScore: number;
+}): Promise<Assignment> {
+  const database = requireDb();
+  const ref = await addDoc(collection(database, "assignments"), {
+    classId: input.classId,
+    teacherId: input.teacherId,
+    title: input.title,
+    description: input.description,
+    dueDate: input.dueDate,
+    maxScore: input.maxScore,
+    createdAt: serverTimestamp(),
+  });
+  const snap = await getDoc(ref);
+  return mapAssignmentDoc(snap.id, snap.data() as Record<string, unknown>);
+}
+
+export async function getAssignmentsForClass(classId: string): Promise<Assignment[]> {
+  const database = requireDb();
+  const snaps = await getDocs(
+    query(collection(database, "assignments"), where("classId", "==", classId)),
+  );
+  return snaps.docs
+    .map((d) => mapAssignmentDoc(d.id, d.data()))
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+}
+
+export async function getAssignmentById(assignmentId: string): Promise<Assignment | null> {
+  const database = requireDb();
+  const snap = await getDoc(doc(database, "assignments", assignmentId));
+  if (!snap.exists()) return null;
+  return mapAssignmentDoc(snap.id, snap.data());
+}
+
+/** Derives the effective status of a student's assignment, including the "missing"/"pending" states that have no stored doc. */
+export function deriveSubmissionStatus(
+  assignment: Assignment,
+  submission: Submission | undefined,
+): SubmissionStatusResult {
+  if (submission) return submission.status;
+  const overdue = new Date(assignment.dueDate + "T23:59:59") < new Date();
+  return overdue ? "missing" : "pending";
+}
+
+export type SubmissionStatusResult = "submitted" | "late" | "missing" | "pending";
+
+export async function getSubmissionsForAssignment(assignmentId: string): Promise<Submission[]> {
+  const database = requireDb();
+  const snaps = await getDocs(
+    query(collection(database, "submissions"), where("assignmentId", "==", assignmentId)),
+  );
+  return snaps.docs.map((d) => mapSubmissionDoc(d.id, d.data()));
+}
+
+export async function getSubmissionsForClass(classId: string): Promise<Submission[]> {
+  const database = requireDb();
+  const snaps = await getDocs(
+    query(collection(database, "submissions"), where("classId", "==", classId)),
+  );
+  return snaps.docs.map((d) => mapSubmissionDoc(d.id, d.data()));
+}
+
+export async function getSubmissionForStudent(
+  assignmentId: string,
+  studentId: string,
+): Promise<Submission | null> {
+  const database = requireDb();
+  const snaps = await getDocs(
+    query(
+      collection(database, "submissions"),
+      where("assignmentId", "==", assignmentId),
+      where("studentId", "==", studentId),
+    ),
+  );
+  if (snaps.empty) return null;
+  return mapSubmissionDoc(snaps.docs[0].id, snaps.docs[0].data());
+}
+
+/** Submits (or re-submits) a student's answer for an assignment. Idempotent: overwrites the prior submission if one exists. */
+export async function submitAssignment(input: {
+  assignmentId: string;
+  classId: string;
+  studentId: string;
+  studentName: string;
+  dueDate: string;
+  content?: string | null;
+  fileName?: string | null;
+}): Promise<Submission> {
+  const database = requireDb();
+  const existing = await getDocs(
+    query(
+      collection(database, "submissions"),
+      where("assignmentId", "==", input.assignmentId),
+      where("studentId", "==", input.studentId),
+    ),
+  );
+  const isLate = new Date(input.dueDate + "T23:59:59") < new Date();
+  const payload = {
+    assignmentId: input.assignmentId,
+    classId: input.classId,
+    studentId: input.studentId,
+    studentName: input.studentName,
+    content: input.content ?? null,
+    fileName: input.fileName ?? null,
+    status: isLate ? "late" : "submitted",
+    submittedAt: serverTimestamp(),
+  };
+  if (!existing.empty) {
+    const ref = existing.docs[0].ref;
+    await updateDoc(ref, payload);
+    const snap = await getDoc(ref);
+    return mapSubmissionDoc(snap.id, snap.data() as Record<string, unknown>);
+  }
+  const ref = await addDoc(collection(database, "submissions"), {
+    ...payload,
+    score: null,
+    gradedAt: null,
+  });
+  const snap = await getDoc(ref);
+  return mapSubmissionDoc(snap.id, snap.data() as Record<string, unknown>);
+}
+
+/** Records a (simulated) grade for a submission. */
+export async function gradeSubmission(submissionId: string, score: number): Promise<void> {
+  const database = requireDb();
+  await updateDoc(doc(database, "submissions", submissionId), {
+    score,
+    gradedAt: serverTimestamp(),
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* AI early-warning risk analysis (real computation over Firestore data) */
+/* ------------------------------------------------------------------ */
+
+const ATTENDANCE_RISK_THRESHOLD = 80;
+
+/**
+ * Computes a real, non-mocked per-student risk analysis for a class: attendance
+ * rate from actual session/attendance records, plus late-or-missing assignment
+ * counts from actual assignment/submission records. No seed/fake data involved --
+ * on a brand-new class with no history yet this simply returns an empty list.
+ */
+export async function getClassRiskAnalysis(cls: Class): Promise<StudentRiskEntry[]> {
+  if (cls.studentIds.length === 0) return [];
+  const database = requireDb();
+
+  const [students, sessionsSnap, attendanceSnap, assignments, submissions] = await Promise.all([
+    getUsersByIds(cls.studentIds),
+    getDocs(query(collection(database, "sessions"), where("classId", "==", cls.id))),
+    getDocs(query(collection(database, "attendance"), where("classId", "==", cls.id))),
+    getAssignmentsForClass(cls.id),
+    getSubmissionsForClass(cls.id),
+  ]);
+
+  const totalSessions = sessionsSnap.size;
+  const checkinCountByStudent = new Map<string, number>();
+  attendanceSnap.docs.forEach((d) => {
+    const studentId = d.data().studentId as string;
+    checkinCountByStudent.set(studentId, (checkinCountByStudent.get(studentId) ?? 0) + 1);
+  });
+
+  const submissionByKey = new Map<string, Submission>();
+  submissions.forEach((s) => submissionByKey.set(`${s.assignmentId}:${s.studentId}`, s));
+
+  const entries: StudentRiskEntry[] = [];
+
+  for (const student of students) {
+    const checkins = checkinCountByStudent.get(student.id) ?? 0;
+    const attendanceRate =
+      totalSessions > 0 ? Math.round((checkins / totalSessions) * 100) : 100;
+
+    let lateOrMissingCount = 0;
+    for (const assignment of assignments) {
+      const submission = submissionByKey.get(`${assignment.id}:${student.id}`);
+      const status = deriveSubmissionStatus(assignment, submission);
+      if (status === "late" || status === "missing") lateOrMissingCount += 1;
+    }
+
+    const lowAttendance = attendanceRate < ATTENDANCE_RISK_THRESHOLD;
+    const hasWorkIssues = lateOrMissingCount > 0;
+    if (!lowAttendance && !hasWorkIssues) continue;
+
+    const riskLevel: "high" | "medium" =
+      (lowAttendance && hasWorkIssues) || attendanceRate < 60 || lateOrMissingCount >= 2
+        ? "high"
+        : "medium";
+
+    const reasons: string[] = [];
+    if (lowAttendance) reasons.push(`เข้าเรียนเพียง ${attendanceRate}% (ต่ำกว่าเกณฑ์ 80%)`);
+    if (hasWorkIssues) reasons.push(`ส่งงานช้าหรือขาดส่ง ${lateOrMissingCount} ชิ้น`);
+
+    entries.push({
+      studentId: student.id,
+      studentName: student.displayName,
+      attendanceRate,
+      lateOrMissingCount,
+      riskLevel,
+      message: `${reasons.join(" และ ")} ควรเรียกคุยหรือแจ้งเตือนผู้ปกครองผ่าน LINE OA`,
+    });
+  }
+
+  return entries.sort((a, b) => {
+    if (a.riskLevel !== b.riskLevel) return a.riskLevel === "high" ? -1 : 1;
+    return a.attendanceRate - b.attendanceRate;
+  });
 }

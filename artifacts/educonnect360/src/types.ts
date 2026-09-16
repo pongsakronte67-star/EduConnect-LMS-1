@@ -67,3 +67,43 @@ export interface Attendance {
   status: AttendanceStatus;
   checkedInAt: string; // ISO timestamp
 }
+
+/** An assignment/homework item, stored in the `assignments` Firestore collection. */
+export interface Assignment {
+  id: string;
+  classId: string;
+  teacherId: string;
+  title: string;
+  description: string;
+  dueDate: string; // ISO date, e.g. "2026-07-20"
+  maxScore: number;
+  createdAt: string;
+}
+
+/** Status of a single student's submission relative to an assignment's due date. */
+export type SubmissionStatus = "submitted" | "late" | "missing" | "pending";
+
+/** A student's submission for an assignment, stored in the `submissions` Firestore collection. */
+export interface Submission {
+  id: string;
+  assignmentId: string;
+  classId: string;
+  studentId: string;
+  studentName: string;
+  content?: string | null; // typed answer text
+  fileName?: string | null; // mocked "uploaded" file name
+  status: "submitted" | "late"; // "missing"/"pending" are derived, never stored
+  score: number | null;
+  submittedAt: string; // ISO timestamp
+  gradedAt: string | null;
+}
+
+/** AI-computed risk level for a student, surfaced on the teacher's class dashboard. */
+export interface StudentRiskEntry {
+  studentId: string;
+  studentName: string;
+  attendanceRate: number; // 0-100, based on real session/attendance data
+  lateOrMissingCount: number; // based on real assignment/submission data
+  riskLevel: "high" | "medium";
+  message: string;
+}

@@ -4,10 +4,11 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { createClass, getClassesForTeacher } from "@/lib/firestore";
 import { CLASS_COVERS, coverGradient } from "@/lib/covers";
+import { TeacherNav } from "@/components/teacher-nav";
 import type { Class, ClassCover } from "@/types";
 
 export default function TeacherHome() {
-  const { profile, logout } = useAuth();
+  const { profile } = useAuth();
   const { toast } = useToast();
   const [classes, setClasses] = useState<Class[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,7 +41,7 @@ export default function TeacherHome() {
       <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-primary/10 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-20%] right-[-10%] w-[55%] h-[55%] bg-emerald-500/5 rounded-full blur-[120px] pointer-events-none" />
 
-      <TeacherNav name={profile?.displayName} onLogout={logout} />
+      <TeacherNav />
 
       <main className="relative z-10 max-w-6xl mx-auto px-6 md:px-10 py-10">
         <div className="flex items-center justify-between mb-8 animate-fade-in-up">
@@ -120,32 +121,6 @@ export default function TeacherHome() {
         />
       )}
     </div>
-  );
-}
-
-function TeacherNav({ name, onLogout }: { name?: string; onLogout: () => void }) {
-  return (
-    <nav className="w-full px-6 md:px-10 py-5 flex items-center justify-between relative z-10 glass-panel border-x-0 border-t-0 rounded-none">
-      <Link href="/teacher" className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center text-primary-foreground shadow-lg shadow-primary/20">
-          <i className="fa-solid fa-graduation-cap text-lg" />
-        </div>
-        <span className="text-xl font-bold tracking-tight text-foreground">
-          EduConnect<span className="text-primary font-extrabold">360</span>
-        </span>
-      </Link>
-      <div className="flex items-center gap-4">
-        <span className="hidden sm:flex items-center gap-2 text-sm font-medium text-muted-foreground">
-          <i className="fa-solid fa-chalkboard-user text-primary" /> {name}
-        </span>
-        <button
-          onClick={onLogout}
-          className="px-4 py-2 rounded-lg glass-panel text-sm font-semibold text-foreground hover:bg-white/60 dark:hover:bg-black/20 transition-all flex items-center gap-2"
-        >
-          <i className="fa-solid fa-right-from-bracket" /> ออกจากระบบ
-        </button>
-      </div>
-    </nav>
   );
 }
 
